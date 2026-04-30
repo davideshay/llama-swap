@@ -256,6 +256,7 @@ groups:
 				Members:    []string{"model4"},
 			},
 		},
+		MetadataMode: "nested",
 	}
 
 	assert.Equal(t, expected, config)

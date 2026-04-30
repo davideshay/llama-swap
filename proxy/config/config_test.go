@@ -811,6 +811,96 @@ func TestConfig_APIKeys_Invalid(t *testing.T) {
 	}
 }
 
+func TestConfig_MetadataMode_Validation(t *testing.T) {
+	tests := []struct {
+		name        string
+		content     string
+		expectedErr string
+	}{
+		{
+			name: "invalid global metadataMode",
+			content: `
+metadataMode: "invalid"
+models:
+  test:
+    cmd: /path/to/server
+    proxy: "http://localhost:8080"
+`,
+			expectedErr: "metadataMode must be one of: nested, inline",
+		},
+		{
+			name: "invalid model-level metadataMode",
+			content: `
+models:
+  test:
+    cmd: /path/to/server
+    proxy: "http://localhost:8080"
+    metadataMode: "invalid"
+`,
+			expectedErr: "model test: metadataMode must be one of: nested, inline",
+		},
+		{
+			name: "valid nested mode",
+			content: `
+metadataMode: "nested"
+models:
+  test:
+    cmd: /path/to/server
+    proxy: "http://localhost:8080"
+`,
+			expectedErr: "",
+		},
+		{
+			name: "valid inline mode",
+			content: `
+metadataMode: "inline"
+models:
+  test:
+    cmd: /path/to/server
+    proxy: "http://localhost:8080"
+`,
+			expectedErr: "",
+		},
+		{
+			name: "valid model override",
+			content: `
+metadataMode: "nested"
+models:
+  test:
+    cmd: /path/to/server
+    proxy: "http://localhost:8080"
+    metadataMode: "inline"
+`,
+			expectedErr: "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := LoadConfigFromReader(strings.NewReader(tt.content))
+			if tt.expectedErr == "" {
+				assert.NoError(t, err)
+			} else {
+				if assert.Error(t, err) {
+					assert.Equal(t, tt.expectedErr, err.Error())
+				}
+			}
+		})
+	}
+}
+
+func TestConfig_MetadataMode_DefaultValue(t *testing.T) {
+	content := `
+models:
+  test:
+    cmd: /path/to/server
+    proxy: "http://localhost:8080"
+`
+	config, err := LoadConfigFromReader(strings.NewReader(content))
+	assert.NoError(t, err)
+	assert.Equal(t, "nested", config.MetadataMode, "default metadataMode should be 'nested'")
+}
+
 func TestConfig_APIKeys_EnvMacros(t *testing.T) {
 	t.Run("env substitution in apiKeys", func(t *testing.T) {
 		t.Setenv("TEST_API_KEY", "secret-key-123")

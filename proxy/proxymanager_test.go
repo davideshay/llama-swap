@@ -410,6 +410,189 @@ models:
 	assert.False(t, exists, "model2 should not have llamaswap_meta")
 }
 
+func TestProxyManager_ListModelsHandler_MetadataMode_Inline(t *testing.T) {
+	// Test inline metadata mode
+	configYaml := `
+healthCheckTimeout: 15
+logLevel: error
+startPort: 10000
+metadataMode: "inline"
+models:
+  model1:
+    cmd: /path/to/server -p ${PORT}
+    macros:
+      PORT_NUM: 10001
+      TEMP: 0.7
+    metadata:
+      custom_field: "value1"
+      port: ${PORT_NUM}
+      temperature: ${TEMP}
+      enabled: true
+  model2:
+    cmd: /path/to/server -p ${PORT}
+`
+	processedConfig, err := config.LoadConfigFromReader(strings.NewReader(configYaml))
+	assert.NoError(t, err)
+
+	proxy := New(processedConfig)
+
+	req := httptest.NewRequest("GET", "/v1/models", nil)
+	w := CreateTestResponseRecorder()
+	proxy.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+
+	var response struct {
+		Data []map[string]any `json:"data"`
+	}
+
+	err = json.Unmarshal(w.Body.Bytes(), &response)
+	assert.NoError(t, err)
+	assert.Len(t, response.Data, 2)
+
+	// Find model1 in response
+	var model1Data map[string]any
+	for _, model := range response.Data {
+		if model["id"] == "model1" {
+			model1Data = model
+			break
+		}
+	}
+
+	// Verify metadata is inline (not under meta.llamaswap)
+	assert.NotNil(t, model1Data)
+	_, hasMetaKey := model1Data["meta"]
+	assert.False(t, hasMetaKey, "model1 should not have meta key in inline mode")
+
+	// Verify custom fields are directly in the model record
+	assert.Equal(t, "value1", model1Data["custom_field"])
+	assert.Equal(t, float64(10001), model1Data["port"])
+	assert.Equal(t, 0.7, model1Data["temperature"])
+	assert.Equal(t, true, model1Data["enabled"])
+
+	// Verify protected fields are still present
+	assert.Equal(t, "model1", model1Data["id"])
+	assert.Equal(t, "model", model1Data["object"])
+	assert.NotNil(t, model1Data["created"])
+	assert.Equal(t, "llama-swap", model1Data["owned_by"])
+}
+
+func TestProxyManager_ListModelsHandler_MetadataMode_ModelOverride(t *testing.T) {
+	// Test model-level override of global metadataMode
+	configYaml := `
+healthCheckTimeout: 15
+logLevel: error
+startPort: 10000
+metadataMode: "nested"
+models:
+  model1:
+    cmd: /path/to/server -p ${PORT}
+    metadata:
+      custom_field: "nested_mode"
+  model2:
+    cmd: /path/to/server -p ${PORT}
+    metadataMode: "inline"
+    metadata:
+      custom_field: "inline_mode"
+`
+	processedConfig, err := config.LoadConfigFromReader(strings.NewReader(configYaml))
+	assert.NoError(t, err)
+
+	proxy := New(processedConfig)
+
+	req := httptest.NewRequest("GET", "/v1/models", nil)
+	w := CreateTestResponseRecorder()
+	proxy.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+
+	var response struct {
+		Data []map[string]any `json:"data"`
+	}
+
+	err = json.Unmarshal(w.Body.Bytes(), &response)
+	assert.NoError(t, err)
+	assert.Len(t, response.Data, 2)
+
+	// Find models in response
+	var model1Data, model2Data map[string]any
+	for _, model := range response.Data {
+		if model["id"] == "model1" {
+			model1Data = model
+		} else if model["id"] == "model2" {
+			model2Data = model
+		}
+	}
+
+	// Verify model1 uses nested mode (global default)
+	assert.NotNil(t, model1Data)
+	meta1, exists := model1Data["meta"]
+	assert.True(t, exists, "model1 should have meta key (nested mode)")
+	metaMap1 := meta1.(map[string]any)
+	lsmeta1 := metaMap1["llamaswap"].(map[string]any)
+	assert.Equal(t, "nested_mode", lsmeta1["custom_field"])
+
+	// Verify model2 uses inline mode (model override)
+	assert.NotNil(t, model2Data)
+	_, hasMetaKey := model2Data["meta"]
+	assert.False(t, hasMetaKey, "model2 should not have meta key (inline mode)")
+	assert.Equal(t, "inline_mode", model2Data["custom_field"])
+}
+
+func TestProxyManager_ListModelsHandler_MetadataMode_ProtectedFields(t *testing.T) {
+	// Test that protected fields cannot be overridden in inline mode
+	configYaml := `
+healthCheckTimeout: 15
+logLevel: error
+startPort: 10000
+metadataMode: "inline"
+models:
+  model1:
+    cmd: /path/to/server -p ${PORT}
+    name: "Original Name"
+    description: "Original Description"
+    metadata:
+      id: "should_not_override"
+      object: "should_not_override"
+      created: 999999
+      owned_by: "should_not_override"
+      name: "should_not_override"
+      description: "should_not_override"
+      custom_field: "allowed"
+`
+	processedConfig, err := config.LoadConfigFromReader(strings.NewReader(configYaml))
+	assert.NoError(t, err)
+
+	proxy := New(processedConfig)
+
+	req := httptest.NewRequest("GET", "/v1/models", nil)
+	w := CreateTestResponseRecorder()
+	proxy.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+
+	var response struct {
+		Data []map[string]any `json:"data"`
+	}
+
+	err = json.Unmarshal(w.Body.Bytes(), &response)
+	assert.NoError(t, err)
+	assert.Len(t, response.Data, 1)
+
+	model1Data := response.Data[0]
+
+	// Verify protected fields are NOT overridden
+	assert.Equal(t, "model1", model1Data["id"])
+	assert.Equal(t, "model", model1Data["object"])
+	assert.NotEqual(t, float64(999999), model1Data["created"])
+	assert.Equal(t, "llama-swap", model1Data["owned_by"])
+	assert.Equal(t, "Original Name", model1Data["name"])
+	assert.Equal(t, "Original Description", model1Data["description"])
+
+	// Verify custom field IS included
+	assert.Equal(t, "allowed", model1Data["custom_field"])
+}
+
 func TestProxyManager_ListModelsHandler_SortedByID(t *testing.T) {
 	// Intentionally add models in non-sorted order and with an unlisted model
 	cfg := testConfigFromYAML(t, `

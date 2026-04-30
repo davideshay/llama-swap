@@ -590,8 +590,29 @@ func (pm *ProxyManager) listModelsHandler(c *gin.Context) {
 
 		// Add metadata if present
 		if len(modelConfig.Metadata) > 0 {
-			record["meta"] = gin.H{
-				"llamaswap": modelConfig.Metadata,
+			// Determine effective metadata mode (model-level overrides global)
+			metadataMode := pm.config.MetadataMode
+			if modelConfig.MetadataMode != nil {
+				metadataMode = *modelConfig.MetadataMode
+			}
+
+			if metadataMode == "inline" {
+				// Inline mode: merge metadata directly into record
+				// Protected fields cannot be overridden
+				protectedFields := map[string]bool{
+					"id": true, "object": true, "created": true,
+					"owned_by": true, "name": true, "description": true,
+				}
+				for key, value := range modelConfig.Metadata {
+					if !protectedFields[key] {
+						record[key] = value
+					}
+				}
+			} else {
+				// Nested mode (default): metadata under meta.llamaswap
+				record["meta"] = gin.H{
+					"llamaswap": modelConfig.Metadata,
+				}
 			}
 		}
 		return record

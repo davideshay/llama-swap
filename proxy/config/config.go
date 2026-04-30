@@ -150,6 +150,11 @@ type Config struct {
 	// send loading state in reasoning
 	SendLoadingState bool `yaml:"sendLoadingState"`
 
+	// MetadataMode: controls how metadata is included in /v1/models response
+	// - "nested": metadata under meta.llamaswap key (default, backward compatible)
+	// - "inline": metadata merged directly into model record
+	MetadataMode string `yaml:"metadataMode"`
+
 	// present aliases to /v1/models OpenAI API listing
 	IncludeAliasesInList bool `yaml:"includeAliasesInList"`
 
@@ -234,6 +239,16 @@ func LoadConfigFromReader(r io.Reader) (Config, error) {
 		return Config{}, fmt.Errorf("logToStdout must be one of: proxy, upstream, both, none")
 	}
 
+	// Set default and validate MetadataMode
+	if config.MetadataMode == "" {
+		config.MetadataMode = "nested"
+	}
+	switch config.MetadataMode {
+	case "nested", "inline":
+	default:
+		return Config{}, fmt.Errorf("metadataMode must be one of: nested, inline")
+	}
+
 	// Populate the aliases map
 	config.aliases = make(map[string]string)
 	for modelName, modelConfig := range config.Models {
@@ -274,6 +289,15 @@ func LoadConfigFromReader(r io.Reader) (Config, error) {
 
 		if modelConfig.UnloadAfter < 0 {
 			return Config{}, fmt.Errorf("model %s: invalid TTL value %d", modelId, modelConfig.UnloadAfter)
+		}
+
+		// Validate model-level MetadataMode if set
+		if modelConfig.MetadataMode != nil {
+			switch *modelConfig.MetadataMode {
+			case "nested", "inline":
+			default:
+				return Config{}, fmt.Errorf("model %s: metadataMode must be one of: nested, inline", modelId)
+			}
 		}
 
 		// Validate model macros

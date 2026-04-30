@@ -49,6 +49,12 @@ type ModelConfig struct {
 	// Arbitrary metadata that can be exposed through the API
 	Metadata map[string]any `yaml:"metadata"`
 
+	// MetadataMode: controls how metadata is included in /v1/models response
+	// - "nested": metadata under meta.llamaswap key (default, backward compatible)
+	// - "inline": metadata merged directly into model record
+	// If nil, uses global setting
+	MetadataMode *string `yaml:"metadataMode"`
+
 	// override global setting
 	SendLoadingState *bool `yaml:"sendLoadingState"`
 

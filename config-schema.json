@@ -157,6 +157,15 @@
             "default": false,
             "description": "Present aliases within the /v1/models OpenAI API listing. when true, model aliases will be output to the API model listing duplicating all fields except for Id so chat UIs can use the alias equivalent to the original."
         },
+        "metadataMode": {
+            "type": "string",
+            "enum": [
+                "nested",
+                "inline"
+            ],
+            "default": "nested",
+            "description": "Controls how model metadata is included in /v1/models responses. 'nested' (default) places metadata under meta.llamaswap key for backward compatibility. 'inline' merges metadata directly into the model record, allowing other projects to consume custom fields without special parsing. Protected fields (id, object, created, owned_by, name, description) cannot be overridden in inline mode."
+        },
         "macros": {
             "$ref": "#/definitions/macros"
         },
@@ -269,6 +278,14 @@
                         "additionalProperties": true,
                         "default": {},
                         "description": "Dictionary of arbitrary values included in /v1/models. Can contain complex types. Only passed through in /v1/models responses."
+                    },
+                    "metadataMode": {
+                        "type": "string",
+                        "enum": [
+                            "nested",
+                            "inline"
+                        ],
+                        "description": "Overrides the global metadataMode for this model. Controls how metadata is included in /v1/models responses. 'nested' places metadata under meta.llamaswap key. 'inline' merges metadata directly into the model record. Omitting this property uses the global setting."
                     },
                     "concurrencyLimit": {
                         "type": "integer",
